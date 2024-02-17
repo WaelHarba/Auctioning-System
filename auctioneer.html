@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Auctioneer - Bidding Website</title>
+		<link
+			href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"
+			rel="stylesheet"
+			integrity="sha384-Zenh87qX5JnK2Jl0vWa8Ck2rdkQ2Bzep5IDxbcnCeuOxjzrPF/et3URy9Bv1WTRi"
+			crossorigin="anonymous"
+		/>
+		<script
+			src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"
+			integrity="sha384-OERcA2EqjJCMA+/3y+gxIOqMEjwtxJY7qPCqsdltbNJuaOe923+mo//f6V8Qbsw3"
+			crossorigin="anonymous"
+		></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.1/jquery.min.js"></script>
+	</head>
+	<style>
+		#auction-results {
+			display: none;
+		}
+
+		#new-auction-button {
+			display: none;
+		}
+	</style>
+	<body class="container-fluid">
+		<h4 class="text-center mb-5 mt-3">Welcome Auctioneer</h4>
+
+		<div class="row" id="auction-container">
+			<div class="col-3"></div>
+			<form class="col-6" id="auction-form">
+				<div class="mb-3">
+					<label for="item-name" class="form-label">Item Name</label>
+					<input type="text" class="form-control" id="item-name" required />
+				</div>
+				<div class="mb-3">
+					<label for="item-price" class="form-label">Price</label>
+					<div class="input-group mb-3">
+						<span class="input-group-text">$</span>
+						<input type="text" class="form-control" id="item-price" required />
+					</div>
+				</div>
+				<div class="mb-3">
+					<label for="time-limit" class="form-label">Time Limit</label>
+					<div class="row">
+						<div class="col-10">
+							<input
+								type="range"
+								class="form-range"
+								value="10"
+								id="time-limit"
+								min="10"
+								max="80"
+								step="10"
+							/>
+						</div>
+						<div class="col-2 text-center">
+							<span for="time-limit" id="time-limit-label">10 Seconds</span>
+						</div>
+					</div>
+				</div>
+				<div class="col-auto">
+					<button type="submit" class="btn btn-primary mb-3">
+						Start an auction
+					</button>
+				</div>
+			</form>
+		</div>
+
+		<div id="auction-results">
+			<h6 id="countdown-container"></h6>
+			<div class="progress">
+				<div
+					class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+					id="timer-bar"
+					role="progressbar"
+					style="width: 0%"
+				></div>
+			</div>
+
+			<div id="auction-details" class="mt-5">
+				<h2 id="highest-bid-info"></h2>
+				<h5 id="total-bids" class="mt-3">Total number of bids: 0</h5>
+			</div>
+
+			<div class="mt-5">
+				<h4 class="text-center mb-3 text-info">Bidders Information</h4>
+				<table
+					id="bidders-details"
+					class="table table-striped table-hover text-center"
+				>
+					<thead>
+						<tr>
+							<th>Bidder Name</th>
+							<th>Highest Bid Price</th>
+							<th>Number of Bids</th>
+						</tr>
+					</thead>
+					<tbody></tbody>
+				</table>
+			</div>
+
+			<div class="mt-5">
+				<h4 class="text-center mb-3 text-info">Bids History</h4>
+				<table
+					id="bids-history"
+					class="table table-striped table-hover text-center"
+				>
+					<thead>
+						<tr>
+							<th>Bidder Name</th>
+							<th>Bid Price</th>
+						</tr>
+					</thead>
+					<tbody></tbody>
+				</table>
+			</div>
+
+			<button type="button" id="new-auction-button" class="mt-5 btn btn-dark">
+				New auction
+			</button>
+		</div>
+
+		<div
+			class="toast align-items-center position-absolute bottom-0 end-0 bg-danger text-white"
+			id="error-toast"
+			role="alert"
+			aria-live="assertive"
+			aria-atomic="true"
+		>
+			<div class="d-flex">
+				<div class="toast-body" id="error-toast-body"></div>
+				<button
+					type="button"
+					class="btn-close me-2 m-auto"
+					data-bs-dismiss="toast"
+					aria-label="Close"
+				></button>
+			</div>
+		</div>
+
+		<script src="/socket.io/socket.io.js"></script>
+		<script>
+			// Make a connection
+			var socket = io();
+
+			// Toast for showing some errors to the auctioneer
+			const errorToast = new bootstrap.Toast($("#error-toast"));
+
+			// variable that will keep track of the timer
+			var timer;
+
+			// values that will be used for the progress bar that shows the timer
+			var progressBarValues = {
+				incrementValue: 0,
+				currentValue: 0,
+			};
+
+			// Event listener for when auctioneer submits an auction
+			$("#auction-form").submit((event) => {
+				event.preventDefault(); // Prevent refreshing the page when form is submitted
+
+				// If item price is not a number or is 0 or less, show an error using the toast
+				if (isNaN($("#item-price").val()) || $("#item-price").val() <= 0) {
+					$("#error-toast-body").html("Price has to be a number bigger than 0");
+					errorToast.show();
+					return false;
+				}
+
+				// If item name is  empty, show an error using the toast
+				if ($("#item-name").val() == "" || !$("#item-name").val()) {
+					$("#error-toast-body").html(
+						"Please make sure to enter a name for the item"
+					);
+					errorToast.show();
+					return false;
+				}
+
+				// Object has the information about the item
+				var item = {
+					timer: $("#time-limit").val(),
+					price: parseFloat($("#item-price").val()),
+					name: $("#item-name").val(),
+				};
+
+				timer = item.timer;
+				progressBarValues.incrementValue = 100 / timer; // Calculating the increament value for the progress bar every 1 second
+				$("#total-bids").html("Total number of bids: 0");
+				$("#auction-container").hide();
+				$("#auction-results").show();
+				$("#countdown-container").html(
+					"Time left for bidding: " + timer + " seconds"
+				);
+
+				// Sending a message about the auction starting with information about the item
+				socket.emit("auctionstart", item);
+
+				$("#highest-bid-info").html(`Highest Bid: Auctioneer - $${item.price}`);
+				updateTimer(); // Starting the timer
+				return false;
+			});
+
+			// Receiving a message from the server about updates on the auction
+			socket.on("newUpdate", function (auctionUpdate) {
+				// Updating highest bidder and highest bid
+				$("#highest-bid-info").html(
+					`Highest Bid: $${auctionUpdate.highestBid} by the bidder ${auctionUpdate.bidderName}`
+				);
+
+				// Updating the total bids of the auction
+				$("#total-bids").html(
+					`Total number of bids: ${auctionUpdate.auctionTotalBids}`
+				);
+
+				// Checking if the bidder already exists in the table of bidders
+				if ($(`#${auctionUpdate.bidderName}`).length) {
+					// Update the information for this bidder
+					$(`#${auctionUpdate.bidderName}`).html(
+						`<td>${auctionUpdate.bidderName}</td><td>${auctionUpdate.highestBid}</td><td>${auctionUpdate.numberOfBids}</td>`
+					);
+				}
+				// If it's a new bidder that doesn't exist in the table
+				else {
+					// Add the bidder and their information to the table of bidders details
+					$(`#bidders-details tbody`).prepend(
+						`<tr id="${auctionUpdate.bidderName}"><td>${auctionUpdate.bidderName}</td><td>${auctionUpdate.highestBid}</td><td>${auctionUpdate.numberOfBids}</td></tr>`
+					);
+				}
+
+				// Add the new bid to the table of bids history
+				$("#bids-history > tbody:last-child").prepend(
+					`<tr><td>${auctionUpdate.bidderName}</td><td>${auctionUpdate.highestBid}</td></tr>`
+				);
+			});
+
+			// listening to the range input change
+			$("#time-limit").on("input", () => {
+				// Updating the text beside the range to reflect the timer chosen by the aucioneer
+				$("#time-limit-label").html($("#time-limit").val() + " Seconds");
+			});
+
+			// Click listener for the new auction button after an auction ends to reset everything on the page and allow for new auction submission
+			$("#new-auction-button").on("click", (event) => {
+				progressBarValues.currentValue = 0;
+				$("#time-limit-label").html("10 Seconds");
+				$("#auction-form").trigger("reset");
+				$("#timer-bar").css("width", "0%");
+				$("#auction-results").hide();
+				$("#new-auction-button").hide();
+				$("#bidders-details tbody").html("");
+				$("#bids-history tbody").html("");
+				$("#auction-container").css("display", "flex");
+			});
+
+			// Function to update the timer and progress bar of the timer
+			function updateTimer() {
+				// If timer is over, we show the new auction button and show that the timer is up
+				if (timer == 0) {
+					$("#countdown-container").html("Bidding timer is up");
+					$("#new-auction-button").show();
+				}
+				// Otherwise, we countdown every one second and update the timer variable and the progress bar of the timer
+				else {
+					setTimeout(() => {
+						timer = timer - 1;
+						$("#countdown-container").html(
+							"Time left for bidding: " + timer + " seconds"
+						);
+						progressBarValues.currentValue += progressBarValues.incrementValue;
+						$("#timer-bar").css("width", `${progressBarValues.currentValue}%`);
+						updateTimer();
+					}, 1000);
+				}
+			}
+		</script>
+	</body>
+</html>
